@@ -1,17 +1,21 @@
-###################################################
-# This creates and stands up the development
-# docker container. Depends on the Dockerfile and
-# docker-start.sh files.
-###################################################
-
 services:
-  actual-development:
-    build: .
-    image: actual-development
+  actual:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: actualbudget-app
     environment:
-      - HTTPS
+      ACTUAL_PORT: ${ACTUAL_PORT:-5006}
+      ACTUAL_BACKUP_BUCKET: ${ACTUAL_BACKUP_BUCKET:-}
+      ACTUAL_BACKUP_PREFIX: ${ACTUAL_BACKUP_PREFIX:-}
+      ACTUAL_BACKUP_INTERVAL_SECONDS: ${ACTUAL_BACKUP_INTERVAL_SECONDS:-3600}
     ports:
-      - '3001:3001'
+      - '${ACTUAL_PORT:-5006}:5006'
     volumes:
-      - '.:/app'
-    restart: 'no'
+      - './data:/data'
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'node', 'build/scripts/health-check.js']
+      interval: 30s
+      timeout: 5s
+      retries: 3

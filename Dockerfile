@@ -1,11 +1,61 @@
-###################################################
-# This Dockerfile is used by the docker-compose.yml
-# file to build the development container.
-# Do not make any changes here unless you know what
-# you are doing.
-###################################################
+FROM node:22-bookworm AS deps
 
-FROM node:22-bookworm as dev
-RUN apt-get update -y && apt-get upgrade -y && apt-get install -y openssl
+RUN apt-get update && apt-get install -y openssl
+
 WORKDIR /app
-CMD ["sh", "./bin/docker-start"]
+
+COPY .yarn ./.yarn
+COPY yarn.lock package.json .yarnrc.yml tsconfig.json lage.config.js ./
+COPY packages/api/package.json packages/api/package.json
+COPY packages/component-library/package.json packages/component-library/package.json
+COPY packages/crdt/package.json packages/crdt/package.json
+COPY packages/desktop-client/package.json packages/desktop-client/package.json
+COPY packages/desktop-electron/package.json packages/desktop-electron/package.json
+COPY packages/eslint-plugin-actual/package.json packages/eslint-plugin-actual/package.json
+COPY packages/loot-core/package.json packages/loot-core/package.json
+COPY packages/sync-server/package.json packages/sync-server/package.json
+COPY packages/plugins-service/package.json packages/plugins-service/package.json
+
+COPY ./bin/package-browser ./bin/package-browser
+
+RUN yarn install
+
+FROM deps AS builder
+
+WORKDIR /app
+
+COPY packages/ ./packages/
+
+ENV NODE_OPTIONS=--max_old_space_size=8192
+
+RUN yarn exec lage build:browser --to=@actual-app/web --no-cache \
+    && yarn workspace @actual-app/sync-server build
+RUN yarn workspaces focus @actual-app/sync-server --production
+RUN rm -rf ./node_modules/@actual-app/web ./node_modules/@actual-app/sync-server
+
+COPY ./packages/desktop-client/package.json ./node_modules/@actual-app/web/package.json
+RUN cp -r ./packages/desktop-client/build ./node_modules/@actual-app/web/build
+
+FROM node:22-bookworm-slim AS prod
+
+RUN apt-get update && apt-get install -y tar tini && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+
+ARG USERNAME=actual
+ARG USER_UID=1001
+ARG USER_GID=$USER_UID
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+    && mkdir /data && chown -R ${USERNAME}:${USERNAME} /data
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --from=builder /app/node_modules /app/node_modules
+COPY --from=builder /app/packages/sync-server/package.json ./
+COPY --from=builder /app/packages/sync-server/build ./build
+COPY --from=builder /app/packages/sync-server/seed-data ./build/seed-data
+
+USER ${USERNAME}
+ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
+EXPOSE 5006
+CMD ["node", "build/bin/run-server-with-backups.js"]

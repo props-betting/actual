@@ -1,0 +1,17 @@
+###################################################
+# Development-only container stack.
+###################################################
+
+services:
+  actual-development:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: actual-development
+    environment:
+      - HTTPS
+    ports:
+      - '3001:3001'
+    volumes:
+      - '.:/app'
+    restart: 'no'

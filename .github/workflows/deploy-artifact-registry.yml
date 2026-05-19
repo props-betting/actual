@@ -1,0 +1,182 @@
+name: Deploy package to artifact registry
+
+on:
+  pull_request:
+    branches: [staging, main]
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: Branch to deploy
+        required: true
+        type: choice
+        default: staging
+        options:
+          - staging
+          - main
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: actual-deploy-${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.event.inputs.target_branch }}
+  cancel-in-progress: false
+
+jobs:
+  get-deployment-params:
+    if: >
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.merged == true &&
+       (github.event.pull_request.base.ref == 'staging' || github.event.pull_request.base.ref == 'main') &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+      ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.target_branch == 'staging' || github.event.inputs.target_branch == 'main'))
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_repository_url: ${{ steps.declare_variables.outputs.ARTIFACT_REPOSITORY_URL }}
+      image_tag: ${{ steps.declare_variables.outputs.IMAGE_TAG }}
+      new_version: ${{ steps.declare_variables.outputs.NEW_VERSION }}
+      package_name_hyphenated: ${{ steps.declare_variables.outputs.PACKAGE_NAME_HYPHENATED }}
+      project_id: ${{ steps.declare_variables.outputs.PROJECT_ID }}
+      project_number: ${{ steps.declare_variables.outputs.PROJECT_NUMBER }}
+      target_branch: ${{ steps.declare_variables.outputs.TARGET_BRANCH }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.event.inputs.target_branch }}
+          fetch-depth: 0
+
+      - name: Declare variables
+        id: declare_variables
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_REF="${{ github.event.pull_request.base.ref }}"
+          else
+            BASE_REF="${{ github.event.inputs.target_branch }}"
+          fi
+
+          REPO_NAME="${{ github.event.repository.name }}"
+          PACKAGE_NAME_HYPHENATED="$(echo "$REPO_NAME" | sed 's/_/-/g')"
+          VERSION="$(cat version)"
+
+          echo "TARGET_BRANCH=$BASE_REF" >> "$GITHUB_OUTPUT"
+          echo "PACKAGE_NAME_HYPHENATED=$PACKAGE_NAME_HYPHENATED" >> "$GITHUB_OUTPUT"
+          echo "ARTIFACT_REPOSITORY_URL=europe-west1-docker.pkg.dev" >> "$GITHUB_OUTPUT"
+
+          if [[ "$BASE_REF" == "staging" ]]; then
+            PROJECT_ID="props-betting-staging"
+            PROJECT_NUMBER="624525658855"
+            NEW_VERSION="${VERSION}.dev0"
+          elif [[ "$BASE_REF" == "main" ]]; then
+            PROJECT_ID="props-betting-prod"
+            PROJECT_NUMBER="585629106658"
+            NEW_VERSION="$VERSION"
+          else
+            echo "Unsupported base branch: $BASE_REF" >&2
+            exit 1
+          fi
+
+          IMAGE_TAG="europe-west1-docker.pkg.dev/${PROJECT_ID}/${PACKAGE_NAME_HYPHENATED}/${PACKAGE_NAME_HYPHENATED}:${NEW_VERSION}"
+
+          echo "PROJECT_ID=$PROJECT_ID" >> "$GITHUB_OUTPUT"
+          echo "PROJECT_NUMBER=$PROJECT_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: get-deployment-params
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-deployment-params.outputs.target_branch }}
+          fetch-depth: 0
+
+      - name: Set up environment
+        uses: ./.github/actions/setup
+        with:
+          download-translations: 'false'
+          cache: 'true'
+
+      - name: Build runtime artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          yarn build:browser --skip-translations
+          yarn workspace @actual-app/sync-server build
+
+      - name: Get existing version from releases
+        id: get_existing_version
+        uses: pozetroninc/github-action-get-latest-release@master
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compare versions
+        id: compare_versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.get_existing_version.outputs.release }}" == "v${{ needs.get-deployment-params.outputs.new_version }}" ]]; then
+            echo "NEW_RELEASE=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "NEW_RELEASE=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authenticate GCP
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ needs.get-deployment-params.outputs.project_id }}
+          service_account: github-actions@${{ needs.get-deployment-params.outputs.project_id }}.iam.gserviceaccount.com
+          workload_identity_provider: projects/${{ needs.get-deployment-params.outputs.project_number }}/locations/global/workloadIdentityPools/github/providers/${{ needs.get-deployment-params.outputs.package_name_hyphenated }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          version: '>= 455.0.0'
+
+      - name: Ensure Artifact Registry repository exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="${{ needs.get-deployment-params.outputs.package_name_hyphenated }}"
+          PROJECT="${{ needs.get-deployment-params.outputs.project_id }}"
+          if ! gcloud artifacts repositories describe "$REPO" --location=europe-west1 --project="$PROJECT" >/dev/null 2>&1; then
+            gcloud artifacts repositories create "$REPO" \
+              --repository-format=docker \
+              --location=europe-west1 \
+              --project="$PROJECT" \
+              --description="$REPO Docker repository"
+          fi
+
+      - name: Build and push container
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud auth configure-docker "${{ needs.get-deployment-params.outputs.artifact_repository_url }}" --quiet
+          docker build -f Dockerfile.prebuilt -t "${{ needs.get-deployment-params.outputs.image_tag }}" .
+          docker push "${{ needs.get-deployment-params.outputs.image_tag }}"
+
+      - name: Create release
+        if: steps.compare_versions.outputs.NEW_RELEASE == 'true'
+        uses: ncipollo/release-action@v1
+        env:
+          VERSION: ${{ needs.get-deployment-params.outputs.new_version }}
+        with:
+          tag: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
+          body: |
+            Release v${{ env.VERSION }}
+          draft: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          prerelease: ${{ contains(env.VERSION, '.dev') || contains(env.VERSION, 'a') || contains(env.VERSION, 'b') || contains(env.VERSION, 'rc') }}
+          makeLatest: ${{ !contains(env.VERSION, '.dev') && !contains(env.VERSION, 'a') && !contains(env.VERSION, 'b') && !contains(env.VERSION, 'rc') }}

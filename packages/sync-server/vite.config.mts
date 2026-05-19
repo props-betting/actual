@@ -37,6 +37,10 @@ export default defineConfig({
       input: {
         app: path.resolve(__dirname, 'app.ts'),
         'bin/actual-server': path.resolve(__dirname, 'bin/actual-server.js'),
+        'bin/run-server-with-backups': path.resolve(
+          __dirname,
+          'bin/run-server-with-backups.js',
+        ),
         'scripts/run-migrations': path.resolve(
           __dirname,
           'src/scripts/run-migrations.js',
