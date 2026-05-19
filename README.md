@@ -60,15 +60,22 @@ Backup:
 If `ACTUAL_BACKUP_BUCKET` is unset, the app runs normally without object-storage
 backups.
 
+GitHub Actions deploy configuration:
+- optional repository variable `GCP_WORKLOAD_IDENTITY_PROVIDER`
+- optional repository variable `GCP_WORKLOAD_IDENTITY_POOL`
+
+If `GCP_WORKLOAD_IDENTITY_PROVIDER` is unset, the deploy workflow defaults to a
+provider id matching the repo name. For forked or newly provisioned repos, set
+`GCP_WORKLOAD_IDENTITY_PROVIDER` explicitly if your GCP provider id differs.
+
 ## Release Workflow
 
 - Work on `dev`.
-- Promote by PR `dev -> staging`, then `staging -> main`.
+- Promote by PR `dev -> staging`, then `staging -> master`.
 - Bump `version` before the release you want to publish.
-- Merges into `staging` publish `<version>.dev0`; merges into `main` publish
+- Merges into `staging` publish `<version>.dev0`; merges into `master` publish
   `<version>`.
 - `.github/workflows/deploy-artifact-registry.yml` builds the repo artifacts,
   then publishes the Docker image from `Dockerfile.prebuilt`.
 - This repo defines and publishes the image contract.
 - Runtime deployment should be handled by infra outside the repo.
-

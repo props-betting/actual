@@ -71,6 +71,14 @@ credential discovery, for example:
 - workload identity on the runtime host
 - `GOOGLE_APPLICATION_CREDENTIALS`
 
+GitHub Actions image publishing can also be pointed at a non-default Workload
+Identity provider with repository variables:
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`
+- `GCP_WORKLOAD_IDENTITY_POOL`
+
+If no override is supplied, the workflow assumes pool `github` and a provider
+id equal to the repository name.
+
 ## Backup Model
 
 Backups are best-effort runtime exports of `/data` to GCS as timestamped
@@ -84,10 +92,10 @@ Current behavior:
 
 ## Deployment Model
 
-- Source control follows `dev`, `staging`, `main`
+- Source control follows `dev`, `staging`, `master`
 - Root `version` is the image version source of truth
 - Merges into `staging` publish `<version>.dev0`
-- Merges into `main` publish `<version>`
+- Merges into `master` publish `<version>`
 - `.github/workflows/deploy-artifact-registry.yml` builds release artifacts and
   publishes the Docker image from `Dockerfile.prebuilt`
 - This repository publishes and defines the runtime image contract
