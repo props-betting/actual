@@ -2,7 +2,7 @@ name: Deploy package to artifact registry
 
 on:
   pull_request:
-    branches: [staging, main]
+    branches: [staging, master]
     types: [closed]
   workflow_dispatch:
     inputs:
@@ -13,7 +13,7 @@ on:
         default: staging
         options:
           - staging
-          - main
+          - master
 
 permissions:
   contents: write
@@ -28,11 +28,11 @@ jobs:
     if: >
       (github.event_name == 'pull_request' &&
        github.event.pull_request.merged == true &&
-       (github.event.pull_request.base.ref == 'staging' || github.event.pull_request.base.ref == 'main') &&
+       (github.event.pull_request.base.ref == 'staging' || github.event.pull_request.base.ref == 'master') &&
        github.event.pull_request.head.repo.full_name == github.repository)
       ||
       (github.event_name == 'workflow_dispatch' &&
-       (github.event.inputs.target_branch == 'staging' || github.event.inputs.target_branch == 'main'))
+       (github.event.inputs.target_branch == 'staging' || github.event.inputs.target_branch == 'master'))
     runs-on: ubuntu-latest
     outputs:
       artifact_repository_url: ${{ steps.declare_variables.outputs.ARTIFACT_REPOSITORY_URL }}
@@ -42,6 +42,7 @@ jobs:
       project_id: ${{ steps.declare_variables.outputs.PROJECT_ID }}
       project_number: ${{ steps.declare_variables.outputs.PROJECT_NUMBER }}
       target_branch: ${{ steps.declare_variables.outputs.TARGET_BRANCH }}
+      workload_identity_provider: ${{ steps.declare_variables.outputs.WORKLOAD_IDENTITY_PROVIDER }}
 
     steps:
       - name: Checkout code
@@ -65,6 +66,8 @@ jobs:
           REPO_NAME="${{ github.event.repository.name }}"
           PACKAGE_NAME_HYPHENATED="$(echo "$REPO_NAME" | sed 's/_/-/g')"
           VERSION="$(cat version)"
+          PROVIDER_OVERRIDE="${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
+          POOL_OVERRIDE="${{ vars.GCP_WORKLOAD_IDENTITY_POOL }}"
 
           echo "TARGET_BRANCH=$BASE_REF" >> "$GITHUB_OUTPUT"
           echo "PACKAGE_NAME_HYPHENATED=$PACKAGE_NAME_HYPHENATED" >> "$GITHUB_OUTPUT"
@@ -74,7 +77,7 @@ jobs:
             PROJECT_ID="props-betting-staging"
             PROJECT_NUMBER="624525658855"
             NEW_VERSION="${VERSION}.dev0"
-          elif [[ "$BASE_REF" == "main" ]]; then
+          elif [[ "$BASE_REF" == "master" ]]; then
             PROJECT_ID="props-betting-prod"
             PROJECT_NUMBER="585629106658"
             NEW_VERSION="$VERSION"
@@ -83,12 +86,21 @@ jobs:
             exit 1
           fi
 
+          if [[ "$PROVIDER_OVERRIDE" == projects/*/locations/global/workloadIdentityPools/*/providers/* ]]; then
+            WORKLOAD_IDENTITY_PROVIDER="$PROVIDER_OVERRIDE"
+          else
+            PROVIDER_ID="${PROVIDER_OVERRIDE:-$PACKAGE_NAME_HYPHENATED}"
+            POOL_ID="${POOL_OVERRIDE:-github}"
+            WORKLOAD_IDENTITY_PROVIDER="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
+          fi
+
           IMAGE_TAG="europe-west1-docker.pkg.dev/${PROJECT_ID}/${PACKAGE_NAME_HYPHENATED}/${PACKAGE_NAME_HYPHENATED}:${NEW_VERSION}"
 
           echo "PROJECT_ID=$PROJECT_ID" >> "$GITHUB_OUTPUT"
           echo "PROJECT_NUMBER=$PROJECT_NUMBER" >> "$GITHUB_OUTPUT"
           echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "WORKLOAD_IDENTITY_PROVIDER=$WORKLOAD_IDENTITY_PROVIDER" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: get-deployment-params
@@ -137,7 +149,7 @@ jobs:
         with:
           project_id: ${{ needs.get-deployment-params.outputs.project_id }}
           service_account: github-actions@${{ needs.get-deployment-params.outputs.project_id }}.iam.gserviceaccount.com
-          workload_identity_provider: projects/${{ needs.get-deployment-params.outputs.project_number }}/locations/global/workloadIdentityPools/github/providers/${{ needs.get-deployment-params.outputs.package_name_hyphenated }}
+          workload_identity_provider: ${{ needs.get-deployment-params.outputs.workload_identity_provider }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
