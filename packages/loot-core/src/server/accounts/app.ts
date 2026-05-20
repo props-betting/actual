@@ -536,14 +536,7 @@ async function closeAccount({
         true,
       );
 
-      const transferPayee = await db.first<Pick<db.DbPayee, 'id'>>(
-        'SELECT id FROM payees WHERE transfer_acct = ?',
-        [id],
-      );
-
-      if (!transferPayee) {
-        throw new Error(`Transfer payee with account ID ${id} not found.`);
-      }
+      const transferPayee = await db.getOrCreateTransferPayee(id);
 
       await batchMessages(async () => {
         // TODO: what this should really do is send a special message that
@@ -581,16 +574,8 @@ async function closeAccount({
       // If there is a balance we need to transfer it to the specified
       // account (and possibly categorize it)
       if (balance !== 0 && transferAccountId) {
-        const transferPayee = await db.first<Pick<db.DbPayee, 'id'>>(
-          'SELECT id FROM payees WHERE transfer_acct = ?',
-          [transferAccountId],
-        );
-
-        if (!transferPayee) {
-          throw new Error(
-            `Transfer payee with account ID ${transferAccountId} not found.`,
-          );
-        }
+        const transferPayee =
+          await db.getOrCreateTransferPayee(transferAccountId);
 
         await mainApp.handlers['transaction-add']({
           id: uuidv4(),

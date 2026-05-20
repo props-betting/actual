@@ -218,4 +218,40 @@ describe('Transfer', () => {
     expect(child.transfer_id).not.toBe(parent.transfer_id);
     expect(child.payee).toBe(transferOne.id);
   });
+
+  test('missing transfer payees are recreated before creating a transfer', async () => {
+    await prepareDatabase();
+
+    db.runQuery('DELETE FROM payees WHERE transfer_acct = ?', ['one']);
+
+    const transferTwo = await db.first<db.DbPayee>(
+      "SELECT * FROM payees WHERE transfer_acct = 'two'",
+    );
+
+    const transaction: Transaction = {
+      id: 'txn-missing-transfer-payee',
+      account: 'one',
+      amount: 5000,
+      payee: transferTwo.id,
+      date: '2017-01-01',
+    };
+
+    await db.insertTransaction(transaction);
+
+    await expect(transfer.onInsert(transaction)).resolves.toEqual(
+      expect.objectContaining({
+        id: 'txn-missing-transfer-payee',
+      }),
+    );
+
+    const recreatedTransferPayee = await db.first<db.DbPayee>(
+      "SELECT * FROM payees WHERE transfer_acct = 'one' AND tombstone = 0",
+    );
+    const transferTransaction = await db.getTransaction(
+      (await db.getTransaction('txn-missing-transfer-payee')).transfer_id,
+    );
+
+    expect(recreatedTransferPayee).not.toBeNull();
+    expect(transferTransaction.payee).toBe(recreatedTransferPayee.id);
+  });
 });

@@ -604,15 +604,16 @@ export function createCoordinator({
                 workerMsg.type === 'reply' &&
                 name === 'load-prefs' &&
                 portBudget &&
-                portBudget.startsWith('__creating-') &&
                 workerMsg.result &&
                 (workerMsg.result as Record<string, unknown>).id
               ) {
-                handleBudgetLoaded(
-                  port,
-                  portBudget,
-                  (workerMsg.result as Record<string, unknown>).id as string,
-                );
+                const loadedBudgetId = (
+                  workerMsg.result as Record<string, unknown>
+                ).id as string;
+
+                if (loadedBudgetId !== portBudget) {
+                  handleBudgetLoaded(port, portBudget, loadedBudgetId);
+                }
               }
 
               group.requestToPort.delete(workerMsg.id as string);

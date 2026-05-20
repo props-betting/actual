@@ -50,9 +50,11 @@ On first boot with an empty `./data` volume, the container also seeds the
 ## Local Configuration
 
 Common:
+
 - `ACTUAL_PORT`
 
 Backup:
+
 - `ACTUAL_BACKUP_BUCKET`
 - `ACTUAL_BACKUP_PREFIX`
 - `ACTUAL_BACKUP_INTERVAL_SECONDS`
@@ -61,6 +63,7 @@ If `ACTUAL_BACKUP_BUCKET` is unset, the app runs normally without object-storage
 backups.
 
 GitHub Actions deploy configuration:
+
 - optional repository variable `GCP_WORKLOAD_IDENTITY_PROVIDER`
 - optional repository variable `GCP_WORKLOAD_IDENTITY_POOL`
 
@@ -72,6 +75,10 @@ provider id matching the repo name. For forked or newly provisioned repos, set
 
 - Work on `dev`.
 - Promote by PR `dev -> staging`, then `staging -> master`.
+- `version` is the release source of truth and follows
+  `<upstream-version>-pb.<fork-revision>`, for example `26.5.2-pb.1`.
+- Fork-only releases increment the `pb` revision; upstream rebases/reset bumps
+  restart that suffix from `.1` on the new upstream version.
 - Bump `version` before the release you want to publish.
 - Merges into `staging` publish `<version>.dev0`; merges into `master` publish
   `<version>`.
