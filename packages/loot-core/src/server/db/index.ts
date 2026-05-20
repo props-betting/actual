@@ -563,6 +563,26 @@ export async function getCategory(id: DbCategory['id']) {
   return first<DbCategory>(`SELECT * FROM categories WHERE id = ?`, [id]);
 }
 
+export async function getOrCreateTransferPayee(
+  accountId: DbAccount['id'],
+): Promise<Pick<DbPayee, 'id'>> {
+  const existingPayee = await first<Pick<DbPayee, 'id'>>(
+    'SELECT id FROM payees WHERE transfer_acct = ? AND tombstone = 0',
+    [accountId],
+  );
+
+  if (existingPayee) {
+    return existingPayee;
+  }
+
+  return {
+    id: await insertPayee({
+      name: '',
+      transfer_acct: accountId,
+    }),
+  };
+}
+
 export async function insertPayee(
   payee: WithRequired<Partial<DbPayee>, 'name'>,
 ) {

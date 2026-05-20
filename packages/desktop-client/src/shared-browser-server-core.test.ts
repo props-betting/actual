@@ -864,6 +864,24 @@ describe('SharedWorker coordinator', () => {
       expect(state.budgetGroups.has('new-budget-123')).toBe(true);
       expect(state.portToBudget.get(creator)).toBe('new-budget-123');
     });
+
+    it('load-prefs reply renames an existing leader group after create-budget', () => {
+      const leader = setupBudgetGroup(coordinator, '_demo-budget');
+
+      sendMsg(leader, { id: 'cb-1', name: 'create-budget' });
+      simulateWorkerConnect(leader);
+
+      sendMsg(leader, { id: 'lp-1', name: 'load-prefs' });
+      sendMsg(leader, {
+        type: '__from-worker',
+        msg: { type: 'reply', id: 'lp-1', result: { id: 'fresh-budget-123' } },
+      });
+
+      const state = coordinator.getState();
+      expect(state.budgetGroups.has('_demo-budget')).toBe(false);
+      expect(state.budgetGroups.has('fresh-budget-123')).toBe(true);
+      expect(state.portToBudget.get(leader)).toBe('fresh-budget-123');
+    });
   });
 
   // ── Delete budget ───────────────────────────────────────────────────
