@@ -6,6 +6,7 @@ import { theme } from '@actual-app/components/theme';
 import { send } from '@actual-app/core/platform/client/connection';
 import type { Handlers } from '@actual-app/core/types/handlers';
 
+import { normalizeConfiguredServerUrl } from '#components/manager/server-url';
 import {
   useSetLoginMethods,
   useSetMultiuserEnabled,
@@ -42,11 +43,21 @@ export function useBootstrapped(redirect = true) {
         }
       };
 
-      const url = await send('get-server-url');
+      const configuredUrl = await send('get-server-url');
+      const normalizedConfiguredUrl =
+        normalizeConfiguredServerUrl(configuredUrl);
+
+      if (
+        normalizedConfiguredUrl &&
+        normalizedConfiguredUrl !== configuredUrl
+      ) {
+        await setServerURL(normalizedConfiguredUrl, { validate: false });
+      }
+
       const bootstrapped = await send('get-did-bootstrap');
-      if (url == null && !bootstrapped) {
+      if (normalizedConfiguredUrl == null && !bootstrapped) {
         // A server hasn't been specified yet
-        const serverURL = window.location.origin;
+        const serverURL = normalizeConfiguredServerUrl(window.location.origin);
         const result: Awaited<
           ReturnType<Handlers['subscribe-needs-bootstrap']>
         > = await send('subscribe-needs-bootstrap', {
