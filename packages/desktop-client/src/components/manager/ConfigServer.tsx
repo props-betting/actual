@@ -23,6 +23,7 @@ import { saveGlobalPrefs } from '#prefs/prefsSlice';
 import { useDispatch } from '#redux';
 import { loggedIn, signOut } from '#users/usersSlice';
 
+import { normalizeConfiguredServerUrl } from './server-url';
 import { Title } from './subscribe/common';
 
 export function ElectronServerConfig({
@@ -331,6 +332,8 @@ export function ConfigServer() {
       httpUrl = 'https://' + url;
     }
 
+    httpUrl = normalizeConfiguredServerUrl(httpUrl) ?? httpUrl;
+
     const { error } = await setServerUrl(httpUrl);
     setUrl(httpUrl);
 
@@ -345,7 +348,7 @@ export function ConfigServer() {
   }
 
   function onSameDomain() {
-    setUrl(window.location.origin);
+    setUrl(normalizeConfiguredServerUrl(window.location.origin) ?? '');
   }
 
   async function onSelectSelfSignedCertificate() {
