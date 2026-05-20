@@ -4,9 +4,8 @@ import * as db from '#server/db';
 import { runRules } from './transaction-rules';
 
 async function getPayee(acct) {
-  return db.first<db.DbPayee>('SELECT * FROM payees WHERE transfer_acct = ?', [
-    acct,
-  ]);
+  const payee = await db.getOrCreateTransferPayee(acct);
+  return db.getPayee(payee.id);
 }
 
 async function getTransferredAccount(transaction) {
@@ -53,9 +52,8 @@ export async function addTransfer(transaction, transferredAccount) {
     return null;
   }
 
-  const { id: fromPayee } = await db.first<Pick<db.DbPayee, 'id'>>(
-    'SELECT id FROM payees WHERE transfer_acct = ?',
-    [transaction.account],
+  const { id: fromPayee } = await db.getOrCreateTransferPayee(
+    transaction.account,
   );
 
   const transferTransaction = {
